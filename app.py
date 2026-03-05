@@ -27,7 +27,7 @@ class PromptBufferUI(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Prompt Buffer")
-        self.geometry("500x350") # Slightly larger for the dual-text view
+        self.geometry("500x420") 
         self.attributes("-topmost", True)
         self.resizable(False, False)
 
@@ -41,12 +41,17 @@ class PromptBufferUI(ctk.CTk):
                                               fg_color="gray", state="disabled")
         self.status_indicator.pack(pady=5)
 
-        # Display Box for Before/After
-        self.raw_text_view = ctk.CTkTextbox(self, width=450, height=160, font=("Consolas", 12))
+        # Output View
+        self.raw_text_view = ctk.CTkTextbox(self, width=450, height=180, font=("Consolas", 11), wrap="word")
         self.raw_text_view.pack(pady=10)
-        self.raw_text_view.insert("0.0", "System Ready for Demo...")
+        self.raw_text_view.insert("0.0", "System Ready for Verification...")
 
-        self.footer = ctk.CTkLabel(self, text="Utility v2.5 | Demo Mode", font=("Inter", 10), text_color="gray")
+        # Utility Buttons
+        self.clear_btn = ctk.CTkButton(self, text="CLEAR SCREEN", command=self.clear_screen, 
+                                       fg_color="#34495e", hover_color="#2c3e50", width=120)
+        self.clear_btn.pack(pady=5)
+
+        self.footer = ctk.CTkLabel(self, text="Utility v2.8 | Surgical Intent Mode", font=("Inter", 10), text_color="gray")
         self.footer.pack(side="bottom", pady=5)
 
         self.listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
@@ -58,11 +63,13 @@ class PromptBufferUI(ctk.CTk):
         except Exception as e:
             print(f"Mic Error: {e}")
 
+    def clear_screen(self):
+        self.raw_text_view.delete("0.0", "end")
+        self.raw_text_view.insert("0.0", "Ready...")
+
     def record_callback(self, indata, frames, time, status):
         if self.recording:
             self.audio_data.append(indata.copy())
-            vol = np.linalg.norm(indata) * 30
-            print(f"Level: {'█' * int(vol)}".ljust(50), end="\r")
 
     def on_press(self, key):
         if key == keyboard.Key.ctrl_r and not self.recording:
@@ -71,13 +78,6 @@ class PromptBufferUI(ctk.CTk):
             self.after(0, lambda: self.update_ui_state("recording"))
             winsound.Beep(500, 100)
 
-    def on_release(self, key):
-        if key == keyboard.Key.ctrl_r and self.recording:
-            self.recording = False
-            self.after(0, lambda: self.update_ui_state("processing"))
-            threading.Thread(target=self.process_audio).target=self.process_audio().start() if hasattr(threading.Thread(target=self.process_audio), 'start') else threading.Thread(target=self.process_audio).start()
-
-    # NOTE: Simplified thread call for clarity
     def on_release(self, key):
         if key == keyboard.Key.ctrl_r and self.recording:
             self.recording = False
@@ -101,11 +101,9 @@ class PromptBufferUI(ctk.CTk):
                 self.after(0, lambda: self.update_ui_state("idle"))
                 return
             
-            # --- AUDIO BOOST ---
             audio_stack = np.concatenate(self.audio_data) * 20.0
             write(FILENAME, FS, audio_stack)
             
-            # 1. TRANSCRIPTION
             with open(FILENAME, "rb") as file:
                 transcription = client.audio.transcriptions.create(
                     file=(FILENAME, file.read()),
@@ -115,11 +113,11 @@ class PromptBufferUI(ctk.CTk):
             
             raw_text = transcription.strip()
 
-            # 2. LLAMA REFINEMENT
+            # --- AGGRESSIVE INTENT EXTRACTION ---
             prompt_logic = (
-                "Task: Convert messy speech into a single technical command.\n"
-                "Example Input: 'Create a... no, a React button... actually a Redux store.'\n"
-                "Example Output: Create a Redux store.\n\n"
+                "Task: Extract the final technical intent. Ignore all retracted ideas.\n"
+                "Formatting: Start with 'Create' or 'Build'. Use a concise list of techs.\n"
+                "Fix Typos: 'postcurly' -> 'PostgreSQL', 'portals' -> 'TortoiseORM', 'tickv2' -> 'Pydantic v2'.\n\n"
                 f"Input: '{raw_text}'\n"
                 "Output: "
             )
@@ -128,19 +126,18 @@ class PromptBufferUI(ctk.CTk):
                 model="llama-3.3-70b-versatile",
                 messages=[{"role": "user", "content": prompt_logic}],
                 temperature=0.0,
-                max_tokens=20,
-                stop=["\n", "1.", "Cleaned:"]
+                max_tokens=80, 
+                stop=["\n"] 
             )
             
             final_text = completion.choices[0].message.content.strip()
 
-            # 3. UI UPDATE (MESSY VS CLEAN)
-            # This is the part that will impress Boris
+            # UI Update
             self.raw_text_view.delete("0.0", "end")
             display_content = f"SPOKEN:\n\"{raw_text}\"\n\nCLEANED:\n\"{final_text}\""
             self.raw_text_view.insert("0.0", display_content)
 
-            # 4. OUTPUT TO SYSTEM
+            # Auto-Paste
             pyperclip.copy(final_text)
             time.sleep(0.4)
             pyautogui.hotkey('ctrl', 'v')
@@ -155,3 +152,6 @@ class PromptBufferUI(ctk.CTk):
 if __name__ == "__main__":
     app = PromptBufferUI()
     app.mainloop()
+
+
+    
